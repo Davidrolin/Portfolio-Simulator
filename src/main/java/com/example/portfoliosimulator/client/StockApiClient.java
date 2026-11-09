@@ -7,47 +7,50 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
-import java.util.ArrayList;
-import java.util.List;
+import java.util.*;
 
 @Component
 public class StockApiClient {
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private final RestClient restClient;
+    private final ObjectMapper objectMapper;
 
     @Value("${alphavantage.api.key}")
     private String apiKey;
 
-    public StockApiClient() {
-        this.restClient = RestClient.create();
+    public StockApiClient(RestClient.Builder restClientBuilder, ObjectMapper objectMapper) {
+        this.restClient = restClientBuilder.baseUrl("https://www.alphavantage.co").build();
+        this.objectMapper = objectMapper;
     }
 
-    public List<StockPrice> getPrices(String ticker) {
-        String url = "https://www.alphavantage.co/query?function=TIME_SERIES_WEEKLY_ADJUSTED&symbol="
-                + ticker + "&apikey=" + apiKey;
+    public List<StockPrice> getWeeklyPrices(String ticker) {
+        String url = String.format("/query?function=TIME_SERIES_WEEKLY_ADJUSTED&symbol=%s&apikey=%s", ticker, apiKey);
 
-        String json = restClient.get().uri(url).retrieve().body(String.class);
+        String responseBody = restClient.get()
+                .uri(url)
+                .retrieve()
+                .body(String.class);
+
+        List<StockPrice> prices = new ArrayList<>();
 
         try {
-            JsonNode root = objectMapper.readTree(json);
+            JsonNode root = objectMapper.readTree(responseBody);
             JsonNode timeSeries = root.get("Weekly Adjusted Time Series");
 
-            if (timeSeries == null) {
-                throw new RuntimeException("Ingen prisdata hittades för ticker: " + ticker + " (Kolla API-gräns eller felaktig ticker)");
+            if (timeSeries != null) {
+                Iterator<Map.Entry<String, JsonNode>> fields = timeSeries.fields();
+                while (fields.hasNext()) {
+                    Map.Entry<String, JsonNode> entry = fields.next();
+                    String date = entry.getKey();
+                    double closePrice = entry.getValue().get("5. adjusted close").asDouble();
+
+                    prices.add(new StockPrice(date, closePrice));
+                }
             }
-
-            List<StockPrice> prices = new ArrayList<>();
-            timeSeries.fields().forEachRemaining(entry -> {
-                String date = entry.getKey();
-                double close = entry.getValue().get("5. adjusted close").asDouble();
-                prices.add(new StockPrice(date, close));
-            });
-
-            return prices;
-
         } catch (Exception e) {
-            throw new RuntimeException("Fel vid hämtning/parsning av prisdata för " + ticker, e);
+            throw new RuntimeException("Kunde inte parsa prisdata för " + ticker, e);
         }
+
+        return prices;
     }
 }
