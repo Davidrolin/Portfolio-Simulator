@@ -7,7 +7,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Map;
 
 @Component
 public class StockApiClient {
@@ -18,12 +21,20 @@ public class StockApiClient {
     @Value("${alphavantage.api.key}")
     private String apiKey;
 
-    public StockApiClient(RestClient.Builder restClientBuilder, ObjectMapper objectMapper) {
-        this.restClient = restClientBuilder.baseUrl("https://www.alphavantage.co").build();
-        this.objectMapper = objectMapper;
+    public StockApiClient() {
+        this.restClient = RestClient.builder()
+                .baseUrl("https://www.alphavantage.co")
+                .build();
+        this.objectMapper = new ObjectMapper();
     }
 
     public List<StockPrice> getWeeklyPrices(String ticker) {
+        try {
+            Thread.sleep(1500);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+
         String url = String.format("/query?function=TIME_SERIES_WEEKLY_ADJUSTED&symbol=%s&apikey=%s", ticker, apiKey);
 
         String responseBody = restClient.get()
@@ -38,14 +49,11 @@ public class StockApiClient {
             JsonNode timeSeries = root.get("Weekly Adjusted Time Series");
 
             if (timeSeries != null) {
-                Iterator<Map.Entry<String, JsonNode>> fields = timeSeries.fields();
-                while (fields.hasNext()) {
-                    Map.Entry<String, JsonNode> entry = fields.next();
+                timeSeries.fields().forEachRemaining(entry -> {
                     String date = entry.getKey();
                     double closePrice = entry.getValue().get("5. adjusted close").asDouble();
-
                     prices.add(new StockPrice(date, closePrice));
-                }
+                });
             }
         } catch (Exception e) {
             throw new RuntimeException("Kunde inte parsa prisdata för " + ticker, e);
