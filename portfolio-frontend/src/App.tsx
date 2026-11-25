@@ -9,7 +9,6 @@ import {
   Legend,
   CartesianGrid,
 } from 'recharts';
-import './App.css';
 
 interface Asset {
   ticker: string;
@@ -50,6 +49,15 @@ const TIMEFRAMES: { key: Timeframe; label: string }[] = [
   { key: '10Y', label: '10 år' },
   { key: 'MAX', label: 'Max' },
 ];
+
+function formatNumberWithSpaces(value: number, decimals = 0): string {
+  return value
+    .toLocaleString('sv-SE', {
+      minimumFractionDigits: decimals,
+      maximumFractionDigits: decimals,
+    })
+    .replace(/\u00a0/g, ' ');
+}
 
 function getCutoffDate(timeframe: Timeframe, latestDateStr?: string): string | null {
   if (timeframe === 'MAX') return null;
@@ -103,13 +111,13 @@ function App() {
     setAssets(assets.filter((_, i) => i !== index));
   };
 
-  const runBacktest = async (e: FormEvent) => {
+  const runSimulation = async (e: FormEvent) => {
     e.preventDefault();
     setError(null);
 
     const totalWeight = assets.reduce((sum, asset) => sum + asset.weight, 0);
     if (totalWeight !== 100) {
-      setError(`Portföljens vikter måste summera till 100%. Just nu är de ${totalWeight}%.`);
+      setError(`Portföljens procentandelar måste summera till 100 %. Just nu är de ${totalWeight} %.`);
       return;
     }
 
@@ -122,7 +130,7 @@ function App() {
       });
 
       if (!response.ok) {
-        throw new Error('Kunde inte köra backtest. Kontrollera dina tickers.');
+        throw new Error('Kunde inte köra simuleringen. Kontrollera dina aktiesymboler.');
       }
 
       const data: BacktestResult = await response.json();
@@ -187,245 +195,417 @@ function App() {
     TIMEFRAMES.find((t) => t.key === timeframe)?.label ?? timeframe;
 
   return (
-    <div style={{ maxWidth: '920px', margin: '40px auto', fontFamily: 'sans-serif', padding: '20px' }}>
-      <h1>Portföljbacktester</h1>
+    <div style={{ minHeight: '100vh', backgroundColor: '#0b1936', padding: '40px 24px' }}>
+      <div style={{ maxWidth: '1320px', margin: '0 auto' }}>
+        {/* Header */}
+        <header style={{ marginBottom: '36px' }}>
+          <h1
+            style={{
+              fontSize: '36px',
+              fontWeight: 700,
+              margin: '0 0 10px 0',
+              letterSpacing: '-0.02em',
+              color: '#ffffff',
+            }}
+          >
+            Portföljsimulator
+          </h1>
+          <p
+            style={{
+              fontSize: '16px',
+              color: '#cbd5e1',
+              margin: 0,
+              maxWidth: '720px',
+              lineHeight: 1.5,
+            }}
+          >
+            Simulera hur din aktieportfölj hade utvecklats historiskt och jämför avkastningen mot index (SPY) över olika tidsperioder.
+          </p>
+        </header>
 
-      <form onSubmit={runBacktest}>
-        <h3>Tillgångar och vikter</h3>
-        {assets.map((asset, index) => (
-          <div key={index} style={{ marginBottom: '10px', display: 'flex', gap: '10px' }}>
-            <input
-              type="text"
-              placeholder="Ticker (t.ex. AAPL)"
-              value={asset.ticker}
-              onChange={(e) => handleAssetChange(index, 'ticker', e.target.value)}
-              required
-              style={{ padding: '8px', width: '150px' }}
-            />
-            <input
-              type="number"
-              placeholder="Vikt (%)"
-              value={asset.weight}
-              onChange={(e) => handleAssetChange(index, 'weight', e.target.value)}
-              required
-              style={{ padding: '8px', width: '100px' }}
-            />
-            {assets.length > 1 && (
-              <button type="button" onClick={() => removeAsset(index)} style={{ padding: '8px' }}>
-                Ta bort
-              </button>
-            )}
-          </div>
-        ))}
-
-        <button type="button" onClick={addAsset} style={{ marginRight: '10px', padding: '8px 12px' }}>
-          Lägg till tillgång
-        </button>
-        <button
-          type="submit"
-          disabled={loading}
-          style={{
-            padding: '8px 16px',
-            background: '#007bff',
-            color: 'white',
-            border: 'none',
-            borderRadius: '4px',
-            cursor: 'pointer',
-          }}
-        >
-          {loading ? 'Kör backtest...' : 'Kör Backtest'}
-        </button>
-      </form>
-
-      {error && <p style={{ color: 'red', marginTop: '20px' }}>{error}</p>}
-
-      {result && (
+        {/* Huvudlayout: Graf tar störst plats (ca 68%), kontroller till höger (ca 32%) */}
         <div
           style={{
-            marginTop: '36px',
-            background: '#f9f9f9',
-            color: '#1a1a1a',
-            padding: '24px',
-            borderRadius: '10px',
+            display: 'grid',
+            gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))',
+            gap: '32px',
+            alignItems: 'start',
           }}
         >
+          {/* Vänster: Stor graf + nyckeltal */}
           <div
             style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: '12px',
-              marginBottom: '20px',
+              gridColumn: 'span 2',
+              backgroundColor: '#112246',
+              borderRadius: '14px',
+              padding: '28px',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
             }}
           >
-            <h2 style={{ margin: 0 }}>Resultat</h2>
+            <div
+              style={{
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                flexWrap: 'wrap',
+                gap: '12px',
+                marginBottom: '20px',
+              }}
+            >
+              <div>
+                <h2 style={{ margin: 0, fontSize: '20px', fontWeight: 600, color: '#ffffff' }}>
+                  Utveckling över tid
+                </h2>
+                {result && (
+                  <span style={{ fontSize: '13px', color: '#94a3b8' }}>
+                    Indexerad utveckling (start = 100) · {formatNumberWithSpaces(chartSeries.length)} datapunkter
+                  </span>
+                )}
+              </div>
 
-            <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-              {TIMEFRAMES.map((tf) => {
-                const active = timeframe === tf.key;
-                return (
-                  <button
-                    key={tf.key}
-                    type="button"
-                    onClick={() => setTimeframe(tf.key)}
+              {/* Tidsramar */}
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {TIMEFRAMES.map((tf) => {
+                  const active = timeframe === tf.key;
+                  return (
+                    <button
+                      key={tf.key}
+                      type="button"
+                      onClick={() => setTimeframe(tf.key)}
+                      disabled={!result}
+                      style={{
+                        padding: '7px 13px',
+                        borderRadius: '8px',
+                        border: active
+                          ? '1px solid #38bdf8'
+                          : '1px solid rgba(255, 255, 255, 0.14)',
+                        backgroundColor: active ? '#1e3a6e' : 'rgba(255, 255, 255, 0.04)',
+                        color: active ? '#ffffff' : '#cbd5e1',
+                        fontSize: '13px',
+                        fontWeight: active ? 600 : 400,
+                        cursor: result ? 'pointer' : 'not-allowed',
+                        opacity: result ? 1 : 0.5,
+                      }}
+                    >
+                      {tf.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Själva grafen (stor och tydlig) */}
+            <div style={{ width: '100%', height: '460px' }}>
+              {result && chartSeries.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%">
+                  <LineChart data={chartSeries} margin={{ top: 12, right: 16, left: 4, bottom: 8 }}>
+                    <CartesianGrid
+                      strokeDasharray="2 4"
+                      stroke="rgba(255, 255, 255, 0.08)"
+                      vertical={false}
+                    />
+                    <XAxis
+                      dataKey="date"
+                      stroke="#94a3b8"
+                      tick={{ fill: '#94a3b8', fontSize: 12 }}
+                      tickLine={false}
+                      minTickGap={36}
+                    />
+                    <YAxis
+                      domain={['auto', 'auto']}
+                      stroke="#94a3b8"
+                      tick={{ fill: '#94a3b8', fontSize: 12 }}
+                      tickLine={false}
+                      axisLine={false}
+                      tickFormatter={(val: number) => formatNumberWithSpaces(val, 0)}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        backgroundColor: '#0f1e3d',
+                        border: '1px solid rgba(255, 255, 255, 0.15)',
+                        borderRadius: '10px',
+                        color: '#f8fafc',
+                      }}
+                      formatter={(value: number, name: string, item) => {
+                        const diffPct = value - 100;
+                        const sign = diffPct >= 0 ? '+' : '';
+                        const labelName =
+                          name === 'portfolioIndexed' ? 'Portfölj' : 'SPY Index';
+                        const rawVal =
+                          name === 'portfolioIndexed'
+                            ? item?.payload?.rawPortfolioValue
+                            : item?.payload?.rawBenchmarkValue;
+                        return [
+                          `${formatNumberWithSpaces(value, 2)} (${sign}${formatNumberWithSpaces(diffPct, 2)} %) · Värde: ${formatNumberWithSpaces(Number(rawVal ?? 0), 2)}`,
+                          labelName,
+                        ];
+                      }}
+                      labelFormatter={(label: string) => `Datum: ${label}`}
+                    />
+                    <Legend
+                      wrapperStyle={{ paddingTop: '12px' }}
+                      formatter={(value: string) =>
+                        value === 'portfolioIndexed' ? 'Portfölj' : 'SPY Index'
+                      }
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="portfolioIndexed"
+                      stroke="#38bdf8"
+                      strokeWidth={2.5}
+                      dot={false}
+                      activeDot={{ r: 5, fill: '#38bdf8' }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="benchmarkIndexed"
+                      stroke="#34d399"
+                      strokeWidth={2.5}
+                      dot={false}
+                      activeDot={{ r: 5, fill: '#34d399' }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <div
+                  style={{
+                    height: '100%',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    color: '#94a3b8',
+                    border: '1px dashed rgba(255, 255, 255, 0.14)',
+                    borderRadius: '10px',
+                    fontSize: '15px',
+                  }}
+                >
+                  Välj aktier och procentandel till höger och klicka på ”Simulera” för att visa utvecklingen.
+                </div>
+              )}
+            </div>
+
+            {/* Nyckeltal under grafen (inspirerat av bottenraden i skärmdumpen) */}
+            {result && (
+              <div
+                style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))',
+                  gap: '20px',
+                  marginTop: '28px',
+                  paddingTop: '22px',
+                  borderTop: '1px solid rgba(255, 255, 255, 0.1)',
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#94a3b8' }}>
+                    Portfölj ({activeTimeframeLabel})
+                  </div>
+                  <div
                     style={{
-                      padding: '6px 12px',
-                      borderRadius: '6px',
-                      border: '1px solid #ccc',
-                      background: active ? '#007bff' : 'white',
-                      color: active ? 'white' : '#1a1a1a',
-                      fontWeight: active ? 600 : 400,
-                      cursor: 'pointer',
+                      fontSize: '26px',
+                      fontWeight: 300,
+                      marginTop: '4px',
+                      color: (periodPortfolioReturn ?? 0) >= 0 ? '#34d399' : '#f87171',
                     }}
                   >
-                    {tf.label}
-                  </button>
-                );
-              })}
-            </div>
+                    {periodPortfolioReturn !== null
+                      ? `${periodPortfolioReturn >= 0 ? '+' : ''}${formatNumberWithSpaces(periodPortfolioReturn * 100, 2)} %`
+                      : '0,00 %'}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#94a3b8' }}>
+                    SPY Index ({activeTimeframeLabel})
+                  </div>
+                  <div
+                    style={{
+                      fontSize: '26px',
+                      fontWeight: 300,
+                      marginTop: '4px',
+                      color: (periodBenchmarkReturn ?? 0) >= 0 ? '#34d399' : '#f87171',
+                    }}
+                  >
+                    {periodBenchmarkReturn !== null
+                      ? `${periodBenchmarkReturn >= 0 ? '+' : ''}${formatNumberWithSpaces(periodBenchmarkReturn * 100, 2)} %`
+                      : '0,00 %'}
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#94a3b8' }}>
+                    Total avkastning (Portfölj)
+                  </div>
+                  <div style={{ fontSize: '26px', fontWeight: 300, marginTop: '4px', color: '#ffffff' }}>
+                    {formatNumberWithSpaces(result.totalPortfolioReturn * 100, 2)} %
+                  </div>
+                </div>
+
+                <div>
+                  <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.06em', color: '#94a3b8' }}>
+                    Volatilitet / Sharpe / Drawdown
+                  </div>
+                  <div style={{ fontSize: '18px', fontWeight: 400, marginTop: '8px', color: '#e2e8f0' }}>
+                    {formatNumberWithSpaces(result.portfolioVolatility * 100, 1)} % ·{' '}
+                    {formatNumberWithSpaces(result.sharpeRatio, 2)} ·{' '}
+                    {formatNumberWithSpaces(result.maxDrawdown * 100, 1)} %
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
 
+          {/* Höger: Aktier och procentandel */}
           <div
             style={{
-              display: 'grid',
-              gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-              gap: '14px',
-              marginBottom: '24px',
+              backgroundColor: '#112246',
+              borderRadius: '14px',
+              padding: '28px',
+              border: '1px solid rgba(255, 255, 255, 0.08)',
             }}
           >
-            <div style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #e5e5e5' }}>
-              <div style={{ fontSize: '12px', color: '#666' }}>
-                Avkastning ({activeTimeframeLabel}) – Portfölj
-              </div>
+            <h2 style={{ margin: '0 0 20px 0', fontSize: '20px', fontWeight: 600, color: '#ffffff' }}>
+              Aktier och procentandel
+            </h2>
+
+            <form onSubmit={runSimulation}>
               <div
                 style={{
-                  fontSize: '18px',
-                  fontWeight: 700,
-                  marginTop: '4px',
-                  color: (periodPortfolioReturn ?? 0) >= 0 ? '#198754' : '#dc3545',
+                  display: 'grid',
+                  gridTemplateColumns: '1fr 95px 38px',
+                  gap: '10px',
+                  marginBottom: '8px',
+                  fontSize: '12px',
+                  color: '#94a3b8',
                 }}
               >
-                {periodPortfolioReturn !== null
-                  ? `${periodPortfolioReturn >= 0 ? '+' : ''}${(periodPortfolioReturn * 100).toFixed(2)}%`
-                  : '0.00%'}
+                <span>Aktie (ticker)</span>
+                <span>Procent (%)</span>
+                <span />
               </div>
-            </div>
 
-            <div style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #e5e5e5' }}>
-              <div style={{ fontSize: '12px', color: '#666' }}>
-                Avkastning ({activeTimeframeLabel}) – SPY
-              </div>
-              <div
-                style={{
-                  fontSize: '18px',
-                  fontWeight: 700,
-                  marginTop: '4px',
-                  color: (periodBenchmarkReturn ?? 0) >= 0 ? '#198754' : '#dc3545',
-                }}
-              >
-                {periodBenchmarkReturn !== null
-                  ? `${periodBenchmarkReturn >= 0 ? '+' : ''}${(periodBenchmarkReturn * 100).toFixed(2)}%`
-                  : '0.00%'}
-              </div>
-            </div>
-
-            <div style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #e5e5e5' }}>
-              <div style={{ fontSize: '12px', color: '#666' }}>Total Avkastning (Portfölj)</div>
-              <div style={{ fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>
-                {(result.totalPortfolioReturn * 100).toFixed(2)}%
-              </div>
-            </div>
-
-            <div style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #e5e5e5' }}>
-              <div style={{ fontSize: '12px', color: '#666' }}>Total Avkastning (SPY Index)</div>
-              <div style={{ fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>
-                {(result.totalBenchmarkReturn * 100).toFixed(2)}%
-              </div>
-            </div>
-
-            <div style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #e5e5e5' }}>
-              <div style={{ fontSize: '12px', color: '#666' }}>Volatilitet (Årlig)</div>
-              <div style={{ fontSize: '18px', fontWeight: 700, marginTop: '4px' }}>
-                {(result.portfolioVolatility * 100).toFixed(2)}%
-              </div>
-            </div>
-
-            <div style={{ background: 'white', padding: '12px', borderRadius: '8px', border: '1px solid #e5e5e5' }}>
-              <div style={{ fontSize: '12px', color: '#666' }}>Sharpe-kvot / Max Drawdown</div>
-              <div style={{ fontSize: '16px', fontWeight: 700, marginTop: '4px' }}>
-                {result.sharpeRatio.toFixed(2)} / {(result.maxDrawdown * 100).toFixed(2)}%
-              </div>
-            </div>
-          </div>
-
-          <h3>
-            Utveckling ({activeTimeframeLabel}, start = 100) – {chartSeries.length} datapunkter
-          </h3>
-          <div
-            style={{
-              width: '100%',
-              height: '360px',
-              background: 'white',
-              padding: '16px',
-              borderRadius: '8px',
-              border: '1px solid #e5e5e5',
-              boxSizing: 'border-box',
-            }}
-          >
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={chartSeries} margin={{ top: 10, right: 20, left: 0, bottom: 5 }}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#eee" />
-                <XAxis dataKey="date" tick={{ fontSize: 12 }} minTickGap={30} />
-                <YAxis
-                  domain={['auto', 'auto']}
-                  tick={{ fontSize: 12 }}
-                  tickFormatter={(val: number) => val.toFixed(0)}
-                />
-                <Tooltip
-                  formatter={(value: number, name: string, item) => {
-                    const diffPct = (value - 100).toFixed(2);
-                    const sign = value >= 100 ? '+' : '';
-                    const labelName =
-                      name === 'portfolioIndexed' ? 'Portfölj' : 'SPY Index';
-                    const rawVal =
-                      name === 'portfolioIndexed'
-                        ? item?.payload?.rawPortfolioValue
-                        : item?.payload?.rawBenchmarkValue;
-                    return [
-                      `${value.toFixed(2)} (${sign}${diffPct}%) · Råvärde: ${Number(rawVal ?? 0).toFixed(2)}`,
-                      labelName,
-                    ];
+              {assets.map((asset, index) => (
+                <div
+                  key={index}
+                  style={{
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 95px 38px',
+                    gap: '10px',
+                    marginBottom: '12px',
+                    alignItems: 'center',
                   }}
-                  labelFormatter={(label: string) => `Datum: ${label}`}
-                />
-                <Legend
-                  formatter={(value: string) =>
-                    value === 'portfolioIndexed' ? 'Portfölj' : 'SPY Index'
-                  }
-                />
-                <Line
-                  type="monotone"
-                  dataKey="portfolioIndexed"
-                  stroke="#007bff"
-                  strokeWidth={2.5}
-                  dot={false}
-                  activeDot={{ r: 5 }}
-                />
-                <Line
-                  type="monotone"
-                  dataKey="benchmarkIndexed"
-                  stroke="#28a745"
-                  strokeWidth={2}
-                  strokeDasharray="4 4"
-                  dot={false}
-                  activeDot={{ r: 5 }}
-                />
-              </LineChart>
-            </ResponsiveContainer>
+                >
+                  <input
+                    type="text"
+                    placeholder="T.ex. AAPL"
+                    value={asset.ticker}
+                    onChange={(e) => handleAssetChange(index, 'ticker', e.target.value)}
+                    required
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 255, 255, 0.14)',
+                      backgroundColor: '#192f5d',
+                      color: '#ffffff',
+                      fontSize: '14px',
+                      width: '100%',
+                    }}
+                  />
+                  <input
+                    type="number"
+                    placeholder="%"
+                    value={asset.weight}
+                    onChange={(e) => handleAssetChange(index, 'weight', e.target.value)}
+                    required
+                    style={{
+                      padding: '10px 12px',
+                      borderRadius: '8px',
+                      border: '1px solid rgba(255, 255, 255, 0.14)',
+                      backgroundColor: '#192f5d',
+                      color: '#ffffff',
+                      fontSize: '14px',
+                      width: '100%',
+                      textAlign: 'right',
+                    }}
+                  />
+                  {assets.length > 1 ? (
+                    <button
+                      type="button"
+                      onClick={() => removeAsset(index)}
+                      title="Ta bort aktie"
+                      style={{
+                        height: '38px',
+                        width: '38px',
+                        borderRadius: '8px',
+                        border: '1px solid rgba(255, 255, 255, 0.14)',
+                        backgroundColor: 'rgba(255, 255, 255, 0.05)',
+                        color: '#cbd5e1',
+                        cursor: 'pointer',
+                        fontSize: '16px',
+                      }}
+                    >
+                      ×
+                    </button>
+                  ) : (
+                    <div />
+                  )}
+                </div>
+              ))}
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', marginTop: '20px' }}>
+                <button
+                  type="button"
+                  onClick={addAsset}
+                  style={{
+                    padding: '10px 14px',
+                    borderRadius: '8px',
+                    border: '1px solid rgba(255, 255, 255, 0.18)',
+                    backgroundColor: 'transparent',
+                    color: '#e2e8f0',
+                    fontSize: '14px',
+                    cursor: 'pointer',
+                  }}
+                >
+                  + Lägg till aktie
+                </button>
+
+                <button
+                  type="submit"
+                  disabled={loading}
+                  style={{
+                    padding: '12px 18px',
+                    backgroundColor: '#38bdf8',
+                    color: '#0b1936',
+                    fontWeight: 700,
+                    fontSize: '15px',
+                    border: 'none',
+                    borderRadius: '8px',
+                    cursor: loading ? 'not-allowed' : 'pointer',
+                  }}
+                >
+                  {loading ? 'Simulerar...' : 'Simulera'}
+                </button>
+              </div>
+            </form>
+
+            {error && (
+              <p
+                style={{
+                  color: '#fca5a5',
+                  backgroundColor: 'rgba(239, 68, 68, 0.15)',
+                  padding: '10px 12px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  marginTop: '16px',
+                  marginBottom: 0,
+                }}
+              >
+                {error}
+              </p>
+            )}
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 }
